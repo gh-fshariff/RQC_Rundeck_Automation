@@ -1,0 +1,12 @@
+{
+  "Tool name": "<tool name>",
+  "url": "<rundeck url>",
+  "text_fields": {},
+  "dropdowns": {},
+  "optional_dropdowns": {},
+  "input_files": {
+    "Reagent Input Sheet": "SampleSheet.csv"
+  },
+  "expected_csv_sections": [
+  ]
+}
