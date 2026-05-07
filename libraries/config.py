@@ -35,9 +35,16 @@ class Config:
         with open(self.CONFIG_JSON_PATH, "r") as f:
             data = json.load(f)
 
-        tool_name = data.get("Tool name", "").strip()
+        tool_name = data.get("tool_name", "").strip().replace(" ", "_")
+        tool_version = data.get("tool_version", "").strip().replace(" ", "_")
+
         if tool_name:
-            self.OUTPUT_DIR = os.path.join(self.OUTPUT_DIR, tool_name.replace(" ", "_"))
+            import datetime
+            timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+            if tool_version:
+                self.OUTPUT_DIR = os.path.join(self.OUTPUT_DIR, tool_name, tool_version, timestamp)
+            else:
+                self.OUTPUT_DIR = os.path.join(self.OUTPUT_DIR, tool_name, timestamp)
             os.makedirs(self.OUTPUT_DIR, exist_ok=True)
 
         return data

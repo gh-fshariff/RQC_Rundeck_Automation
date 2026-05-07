@@ -1,8 +1,6 @@
 # Rundeck UI Automation Framework
 
-This module provides an automated, data-driven framework to execute UI testing for Rundeck Run Quality Control
-(RQC) jobs. It automatically performs Negative Testing (verifying required fields block execution when left blank) and
-Happy Path Testing (submitting a valid job, waiting for 'All Steps OK', and verifying the output download).
+This module provides an automated, data-driven framework to execute UI testing for Rundeck RQC jobs. It automatically performs Negative Testing (verifying required fields block execution when left blank) and Happy Path Testing (submitting a valid job, waiting for 'All Steps OK', and verifying the output download).
 
 ## Architecture
 This framework is designed to integrate cleanly into `xFramework` test suites:
@@ -10,7 +8,7 @@ This framework is designed to integrate cleanly into `xFramework` test suites:
 - **`libraries/framework_engine.py`**: The core Playwright engine that interacts with the Rundeck DOM.
 - **`data/config.json`**: The central configuration file mapping all text inputs, dropdowns, and file uploads.
 - **`data/`**: Directory where required input files (e.g. `SampleSheet.csv`) must be stored.
-- **`outputs/`**: Where negative test screenshots and final Happy Path output downloads are saved.
+- **`outputs/`**: Where test evidence (screenshots) and final Happy Path output CSV downloads are saved. Each test run dynamically generates a timestamped subfolder inside here to prevent overlapping test results.
 
 ## Setup Instructions
 1. Activate your virtual environment.

@@ -1,6 +1,7 @@
 {
-  "Tool name": "<tool name>",
-  "url": "<rundeck url>",
+  "tool_name": "<tool name>",
+  "tool_version": "<tool version>",
+  "rundeck_url": "<rundeck url>",
   "text_fields": {},
   "dropdowns": {},
   "optional_dropdowns": {},

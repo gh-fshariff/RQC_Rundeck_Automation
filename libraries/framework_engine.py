@@ -12,62 +12,103 @@ class FrameworkEngine:
         os.makedirs(self.config_manager.INPUT_DIR, exist_ok=True)
         os.makedirs(self.config_manager.OUTPUT_DIR, exist_ok=True)
 
-    def start_automation(self):
-        with sync_playwright() as p:
-            browser = p.chromium.launch(headless=False, channel="chrome", args=["--start-maximized"])
-            
-            # Automatically handle any HTTP Basic Auth "Sign in" browser popups using your .env credentials!
-            context = browser.new_context(
-                no_viewport=True,
-                http_credentials={
-                    "username": self.config_manager.RUNDECK_USER,
-                    "password": self.config_manager.RUNDECK_PWD
-                }
-            )
-            
-            page = context.new_page()
+        self.url = self.input_data.get("rundeck_url")
+        if not self.url:
+            raise ValueError("rundeck_url must be provided in config.json")
+    def _setup_browser(self):
+        """Helper to initialize the browser with Basic Auth credentials."""
+        self.p = sync_playwright().start()
+        self.browser = self.p.chromium.launch(headless=False, channel="chrome", args=["--start-maximized"])
+        self.context = self.browser.new_context(
+            no_viewport=True,
+            http_credentials={
+                "username": self.config_manager.RUNDECK_USER,
+                "password": self.config_manager.RUNDECK_PWD
+            }
+        )
+        self.page = self.context.new_page()
 
+    def _teardown_browser(self):
+        """Helper to close the browser."""
+        self.browser.close()
+        self.p.stop()
 
-            url = self.input_data.get("url")
-            if not url:
-                raise ValueError("URL must be provided in config.json")
-            
-            # --- INITIAL LOGIN ---
-            print(f"Navigating to {url}")
-            page.goto(url)
+    def run_failed_login(self):
+        """Test Case 1: Failed Login"""
+        self._setup_browser()
+        try:
+            print(f"Navigating to {self.url}")
+            # timeout=90000ms is used here to account for extremely slow Rundeck dev server response times
+            self.page.goto(self.url, timeout=90000)
+            self.page.wait_for_selector("input[name='j_username'], input[id='login']", timeout=10000)
+            print("Login page detected. Performing Negative Login Test...")
+
+            self.page.locator("input[name='j_username'], input[id='login'], input[placeholder='Username']").fill(
+                "invalid_user_test")
+            self.page.locator("input[name='j_password'], input[id='password'], input[placeholder='Password']").fill(
+                "invalid_password_test")
+            self.page.locator("button[type='submit'], button:has-text('Login')").click()
+
+            self.page.wait_for_load_state("networkidle")
+
+            error_locator = self.page.locator("text='Invalid username and password.'")
+            if "user/error" in self.page.url or error_locator.is_visible():
+                screenshot_path = os.path.join(self.config_manager.OUTPUT_DIR, "ERROR_Invalid_Credentials.png")
+                self.page.screenshot(path=screenshot_path)
+                print(f"Negative Login Test Passed. Saved evidence: {screenshot_path}")
+            else:
+                raise Exception("Negative login test did not show expected error.")
+        finally:
+            self._teardown_browser()
+
+    def run_successful_login(self):
+        """Test Case 2: Successful Login"""
+        self._setup_browser()
+        try:
+            # timeout=90000ms is used here to account for extremely slow Rundeck dev server response times
+            self.page.goto(self.url, timeout=90000)
             try:
-                page.wait_for_selector("input[name='j_username'], input[id='login']", timeout=5000)
-                print("Login page detected. Performing Negative Login Test...")
-                
-                # 1. Negative Login Test (Wrong Credentials)
-                page.locator("input[name='j_username'], input[id='login'], input[placeholder='Username']").fill("invalid_user_test")
-                page.locator("input[name='j_password'], input[id='password'], input[placeholder='Password']").fill("invalid_password_test")
-                page.locator("button[type='submit'], button:has-text('Login')").click()
-                
-                page.wait_for_load_state("networkidle")
-                
-                # Check if we were redirected to the error page or if the error text is visible
-                error_locator = page.locator("text='Invalid username and password.'")
-                if "user/error" in page.url or error_locator.is_visible():
-                    screenshot_path = os.path.join(self.config_manager.OUTPUT_DIR, "ERROR_Invalid_Credentials.png")
-                    page.screenshot(path=screenshot_path)
-                    print(f"Negative Login Test Passed. Saved evidence: {screenshot_path}")
-                else:
-                    print("Warning: Negative login test did not show expected error.")
-                    
-                # 2. Happy Path Login (Real Credentials)
+                self.page.wait_for_selector("input[name='j_username'], input[id='login']", timeout=5000)
                 print("Automating login using real .env credentials...")
-                page.locator("input[name='j_username'], input[id='login'], input[placeholder='Username']").fill(self.config_manager.RUNDECK_USER)
-                page.locator("input[name='j_password'], input[id='password'], input[placeholder='Password']").fill(self.config_manager.RUNDECK_PWD)
-                page.locator("button[type='submit'], button:has-text('Login')").click()
-                
-            except Exception as e:
-                # If the selector times out, it means we are already logged in
-                pass 
-                
-            page.wait_for_selector("text='Run Job Now'", timeout=60000)
-            
-            # --- PHASE 1: NEGATIVE TESTING ---
+                self.page.locator("input[name='j_username'], input[id='login'], input[placeholder='Username']").fill(
+                    self.config_manager.RUNDECK_USER)
+                self.page.locator("input[name='j_password'], input[id='password'], input[placeholder='Password']").fill(
+                    self.config_manager.RUNDECK_PWD)
+                self.page.locator("button[type='submit'], button:has-text('Login')").click()
+            except Exception:
+                print("Already logged in or bypassed login screen.")
+
+            self.page.wait_for_selector("text='Run Job Now'", timeout=60000)
+
+            # Capture evidence of successful login
+            time.sleep(2)  # Give the page a moment to fully render
+            screenshot_path = os.path.join(self.config_manager.OUTPUT_DIR, "SUCCESS_Valid_Credentials.png")
+            self.page.screenshot(path=screenshot_path)
+            print(f"Successful Login Test Passed. Saved evidence: {screenshot_path}")
+
+        finally:
+            self._teardown_browser()
+
+    def run_negative_fields(self):
+        """Test Case 3: Negative Field Validations"""
+        self._setup_browser()
+        try:
+            # timeout=90000ms is used here to account for extremely slow Rundeck dev server response times
+            self.page.goto(self.url, timeout=90000)
+
+            # Login if needed
+            try:
+                self.page.wait_for_selector("input[name='j_username'], input[id='login']", timeout=5000)
+                self.page.locator("input[name='j_username'], input[id='login'], input[placeholder='Username']").fill(
+                    self.config_manager.RUNDECK_USER)
+                self.page.locator("input[name='j_password'], input[id='password'], input[placeholder='Password']").fill(
+                    self.config_manager.RUNDECK_PWD)
+                self.page.locator("button[type='submit'], button:has-text('Login')").click()
+            except Exception:
+                pass
+
+            self.page.wait_for_selector("text='Run Job Now'", timeout=60000)
+
             text_fields = self.input_data.get("text_fields", {})
             input_files = self.input_data.get("input_files", {})
             dropdowns = self.input_data.get("dropdowns", {})
@@ -76,46 +117,57 @@ class FrameworkEngine:
             
             for field_to_skip in all_fields:
                 print(f"Negative Test: Skipping [{field_to_skip}]")
-                page.goto(url)
-                page.wait_for_load_state("networkidle")
-                page.wait_for_selector("text='Run Job Now'", timeout=10000)
-                
-                self._fill_form(page, skip_field=field_to_skip)
-                
-                page.get_by_role("button", name="Run Job Now").click()
-                
-                # Wait for network requests to finish settling
+                self.page.goto(self.url, timeout=90000)
+                self.page.wait_for_load_state("networkidle")
+                self.page.wait_for_selector("text='Run Job Now'", timeout=10000)
+                self._fill_form(self.page, skip_field=field_to_skip)
+                self.page.get_by_role("button", name="Run Job Now").click()
                 try:
-                    page.wait_for_load_state("networkidle", timeout=10000)
+                    self.page.wait_for_load_state("networkidle", timeout=10000)
                 except:
                     pass
                     
                 # Explicitly wait for the red validation error banner to appear in the DOM
                 try:
-                    page.wait_for_selector(".alert-danger, .errormessage, .text-danger", timeout=10000)
+                    self.page.wait_for_selector(".alert-danger, .errormessage, .text-danger", timeout=10000)
                 except:
                     pass
                 
                 # Give the browser an extra 3 seconds to ensure fonts and styles are fully painted
                 time.sleep(3)
-                
-                screenshot_path = os.path.join(self.config_manager.OUTPUT_DIR, f"ERROR_Missing_{field_to_skip.replace(' ', '_')}.png")
-                page.screenshot(path=screenshot_path)
+                screenshot_path = os.path.join(self.config_manager.OUTPUT_DIR,
+                                               f"ERROR_Missing_{field_to_skip.replace(' ', '_')}.png")
+                self.page.screenshot(path=screenshot_path)
                 print(f"Saved negative evidence: {screenshot_path}")
+        finally:
+            self._teardown_browser()
 
-            # --- PHASE 2: HAPPY PATH ---
+    def run_happy_path(self):
+        """Test Case 4: Happy Path and Output Verification"""
+        self._setup_browser()
+        try:
+            # timeout=90000ms is used here to account for extremely slow Rundeck dev server response times
+            self.page.goto(self.url, timeout=90000)
+
+            # Login if needed
+            try:
+                self.page.wait_for_selector("input[name='j_username'], input[id='login']", timeout=5000)
+                self.page.locator("input[name='j_username'], input[id='login'], input[placeholder='Username']").fill(
+                    self.config_manager.RUNDECK_USER)
+                self.page.locator("input[name='j_password'], input[id='password'], input[placeholder='Password']").fill(
+                    self.config_manager.RUNDECK_PWD)
+                self.page.locator("button[type='submit'], button:has-text('Login')").click()
+            except Exception:
+                pass
+
+            self.page.wait_for_selector("text='Run Job Now'", timeout=60000)
+
             print("\n--- PHASE 2: Starting Happy Path ---")
-            page.goto(url)
-            page.wait_for_load_state("networkidle")
-            page.wait_for_selector("text='Run Job Now'", timeout=10000)
-            
-            self._fill_form(page, skip_field=None)
-            
-            page.get_by_role("button", name="Run Job Now").click()
-            
-            self._verify_output(page)
-            
-            browser.close()
+            self._fill_form(self.page, skip_field=None)
+            self.page.get_by_role("button", name="Run Job Now").click()
+            self._verify_output(self.page)
+        finally:
+            self._teardown_browser()
 
     def _fill_form(self, page, skip_field=None):
         # 1. Handle Text Fields
